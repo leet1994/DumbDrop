@@ -238,4 +238,81 @@ router.delete('/*', async (req, res) => {
   }
 });
 
+/**
+ * Rename file or directory
+ */
+router.put('/rename/*', async (req, res) => {
+  const { newName } = req.body;
+  
+  if (!newName || typeof newName !== 'string' || newName.trim() === '') {
+    return res.status(400).json({ error: 'New name is required' });
+  }
+  
+  // Get the current file/directory path from the wildcard parameter
+  const currentPath = path.join(config.uploadDir, req.params[0]);
+  const currentDir = path.dirname(currentPath);
+  
+  try {
+    // Ensure the current path is within the upload directory (security check)
+    const resolvedCurrentPath = path.resolve(currentPath);
+    const resolvedUploadDir = path.resolve(config.uploadDir);
+    if (!resolvedCurrentPath.startsWith(resolvedUploadDir)) {
+      logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    // Check if the current file/directory exists
+    await fs.access(currentPath);
+    const stats = await fs.stat(currentPath);
+    
+    // Sanitize the new name using our safe sanitization function
+    const { sanitizeFilenameSafe } = require('../utils/fileUtils');
+    const sanitizedNewName = sanitizeFilenameSafe(newName.trim());
+    
+    // Construct the new path
+    const newPath = path.join(currentDir, sanitizedNewName);
+    
+    // Ensure the new path is also within the upload directory
+    const resolvedNewPath = path.resolve(newPath);
+    if (!resolvedNewPath.startsWith(resolvedUploadDir)) {
+      logger.warn(`Attempted to rename outside upload directory: ${newPath}`);
+      return res.status(403).json({ error: 'Invalid destination path' });
+    }
+    
+    // Check if a file/directory with the new name already exists
+    try {
+      await fs.access(newPath);
+      return res.status(409).json({ error: 'A file or directory with that name already exists' });
+    } catch (err) {
+      // File doesn't exist, which is what we want
+      if (err.code !== 'ENOENT') {
+        throw err;
+      }
+    }
+    
+    // Perform the rename operation
+    await fs.rename(currentPath, newPath);
+    
+    // Log the operation
+    const itemType = stats.isDirectory() ? 'Directory' : 'File';
+    logger.info(`${itemType} renamed: "${req.params[0]}" -> "${sanitizedNewName}"`);
+    
+    // Calculate relative path for response
+    const relativePath = path.relative(config.uploadDir, newPath).replace(/\\/g, '/');
+    
+    res.json({ 
+      message: `${itemType} renamed successfully`,
+      oldName: path.basename(req.params[0]),
+      newName: sanitizedNewName,
+      newPath: relativePath
+    });
+    
+  } catch (err) {
+    logger.error(`Rename failed: ${err.message}`);
+    res.status(err.code === 'ENOENT' ? 404 : 500).json({ 
+      error: err.code === 'ENOENT' ? 'File or directory not found' : 'Failed to rename item' 
+    });
+  }
+});
+
 module.exports = router; 
