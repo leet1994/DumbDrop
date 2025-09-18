@@ -48,6 +48,21 @@
         <div id="uploadProgress"></div>
         <div id="fileList" class="file-list"></div>
         <button id="uploadButton" class="upload-button" style="display: none;">Upload Files</button>
+        
+        <!-- File listing section (controlled by SHOW_FILE_LIST environment variable) -->
+        <div id="uploadedFilesList" class="uploaded-files-section" style="display: none;">
+            <div class="uploaded-files-header">
+                <h2>Uploaded Files</h2>
+                <div class="uploaded-files-stats">
+                    <span id="totalFiles">0 files</span> • 
+                    <span id="totalSize">0 B</span>
+                    <button id="refreshFilesBtn" class="refresh-btn">🔄 Refresh</button>
+                </div>
+            </div>
+            <div id="uploadedFilesContent" class="uploaded-files-content">
+                <div class="loading-message">Loading files...</div>
+            </div>
+        </div>
     </div>
 
     <script defer>
@@ -72,6 +87,9 @@
 
         const AUTO_UPLOAD_STR = '{{AUTO_UPLOAD}}';
         const AUTO_UPLOAD = ['true', '1', 'yes'].includes(AUTO_UPLOAD_STR.toLowerCase());
+
+        const SHOW_FILE_LIST_STR = '{{SHOW_FILE_LIST}}';
+        const SHOW_FILE_LIST = ['true', '1', 'yes'].includes(SHOW_FILE_LIST_STR.toLowerCase());
 
         // Utility function to generate a unique batch ID
         function generateBatchId() {
@@ -897,6 +915,136 @@
             50% { opacity: 1; }
             100% { opacity: 0.6; }
         }
+        
+        /* Uploaded files listing styles */
+        .uploaded-files-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: var(--container-bg);
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+        }
+        .uploaded-files-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .uploaded-files-header h2 {
+            margin: 0;
+            color: var(--text-color);
+            font-size: 1.5em;
+        }
+        .uploaded-files-stats {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-color-secondary);
+            font-size: 0.9em;
+        }
+        .refresh-btn {
+            padding: 5px 10px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: background 0.3s;
+        }
+        .refresh-btn:hover {
+            background: var(--primary-hover);
+        }
+        .uploaded-files-content {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .uploaded-file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            margin: 5px 0;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            transition: background 0.3s;
+        }
+        .uploaded-file-item:hover {
+            background: var(--hover-bg, rgba(0, 0, 0, 0.05));
+        }
+        [data-theme="dark"] .uploaded-file-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .uploaded-file-info {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+        .uploaded-file-name {
+            font-weight: 500;
+            color: var(--text-color);
+            margin-bottom: 2px;
+            word-break: break-all;
+        }
+        .uploaded-file-details {
+            font-size: 0.85em;
+            color: var(--text-color-secondary);
+        }
+        .uploaded-file-actions {
+            display: flex;
+            gap: 5px;
+            margin-left: 10px;
+        }
+        .action-btn {
+            padding: 5px 8px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: all 0.3s;
+            min-width: 60px;
+        }
+        .download-btn {
+            background: var(--success-color);
+            color: white;
+        }
+        .download-btn:hover {
+            background: var(--success-hover, #27ae60);
+        }
+        .delete-btn {
+            background: var(--danger-color);
+            color: white;
+        }
+        .delete-btn:hover {
+            background: var(--danger-hover, #c0392b);
+        }
+        .directory-item {
+            border-left: 3px solid var(--primary-color);
+        }
+        .directory-children {
+            margin-left: 20px;
+            border-left: 1px solid var(--border-color);
+            padding-left: 10px;
+            margin-top: 5px;
+        }
+        .loading-message, .error-message {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-color-secondary);
+        }
+        .error-message {
+            color: var(--danger-color);
+        }
+        .empty-message {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-color-secondary);
+            font-style: italic;
+        }
         `;
         document.head.appendChild(style);
 
@@ -933,6 +1081,11 @@
                 folderInput.value = '';
                 files = [];
                 updateFileList();
+                
+                // Refresh the uploaded files list if it's enabled
+                if (SHOW_FILE_LIST && fileListManager) {
+                    fileListManager.loadFiles();
+                }
             } catch (error) {
                 console.error('Upload failed:', error);
                 Toastify({
@@ -948,6 +1101,175 @@
                 uploadButton.disabled = false;
             }
         }
+
+        // File listing functionality
+        class FileListManager {
+            constructor() {
+                this.uploadedFilesList = document.getElementById('uploadedFilesList');
+                this.uploadedFilesContent = document.getElementById('uploadedFilesContent');
+                this.totalFilesSpan = document.getElementById('totalFiles');
+                this.totalSizeSpan = document.getElementById('totalSize');
+                this.refreshBtn = document.getElementById('refreshFilesBtn');
+                
+                if (SHOW_FILE_LIST) {
+                    this.init();
+                }
+            }
+            
+            init() {
+                this.uploadedFilesList.style.display = 'block';
+                this.refreshBtn.addEventListener('click', () => this.loadFiles());
+                this.loadFiles();
+            }
+            
+            async loadFiles() {
+                try {
+                    this.showLoading();
+                    const response = await fetch('/api/files');
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const data = await response.json();
+                    this.displayFiles(data);
+                } catch (error) {
+                    console.error('Failed to load files:', error);
+                    this.showError('Failed to load files: ' + error.message);
+                }
+            }
+            
+            showLoading() {
+                this.uploadedFilesContent.innerHTML = '<div class="loading-message">Loading files...</div>';
+            }
+            
+            showError(message) {
+                this.uploadedFilesContent.innerHTML = `<div class="error-message">${escapeHtml(message)}</div>`;
+            }
+            
+            displayFiles(data) {
+                this.totalFilesSpan.textContent = `${data.totalFiles} file${data.totalFiles !== 1 ? 's' : ''}`;
+                this.totalSizeSpan.textContent = data.formattedTotalSize || formatFileSize(data.totalSize);
+                
+                if (data.items.length === 0) {
+                    this.uploadedFilesContent.innerHTML = '<div class="empty-message">No files uploaded yet</div>';
+                    return;
+                }
+                
+                this.uploadedFilesContent.innerHTML = '';
+                this.renderItems(data.items, this.uploadedFilesContent);
+            }
+            
+            renderItems(items, container, level = 0) {
+                items.forEach(item => {
+                    const itemElement = this.createItemElement(item, level);
+                    container.appendChild(itemElement);
+                    
+                    if (item.type === 'directory' && item.children && item.children.length > 0) {
+                        const childrenContainer = document.createElement('div');
+                        childrenContainer.className = 'directory-children';
+                        this.renderItems(item.children, childrenContainer, level + 1);
+                        container.appendChild(childrenContainer);
+                    }
+                });
+            }
+            
+            createItemElement(item, level) {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = `uploaded-file-item ${item.type === 'directory' ? 'directory-item' : ''}`;
+                
+                const icon = item.type === 'directory' ? '📁' : '📄';
+                const name = item.name;
+                const details = item.type === 'directory' 
+                    ? `${item.formattedSize} • ${this.countFilesInDirectory(item)} files`
+                    : `${item.formattedSize} • ${new Date(item.uploadDate).toLocaleDateString()}`;
+                
+                itemDiv.innerHTML = `
+                    <div class="uploaded-file-info">
+                        <div class="uploaded-file-name">${icon} ${escapeHtml(name)}</div>
+                        <div class="uploaded-file-details">${escapeHtml(details)}</div>
+                    </div>
+                    <div class="uploaded-file-actions">
+                        ${item.type === 'file' ? `<button class="action-btn download-btn" onclick="fileListManager.downloadFile('${escapeHtml(item.path)}')">Download</button>` : ''}
+                        <button class="action-btn delete-btn" onclick="fileListManager.deleteItem('${escapeHtml(item.path)}', '${item.type}')">Delete</button>
+                    </div>
+                `;
+                
+                return itemDiv;
+            }
+            
+            countFilesInDirectory(dir) {
+                if (!dir.children) return 0;
+                return dir.children.reduce((count, child) => {
+                    return count + (child.type === 'file' ? 1 : this.countFilesInDirectory(child));
+                }, 0);
+            }
+            
+            async downloadFile(filePath) {
+                try {
+                    // Encode each part of the path separately to handle subdirectories
+                    const encodedPath = filePath.split('/').map(part => encodeURIComponent(part)).join('/');
+                    const url = `/api/files/download/${encodedPath}`;
+                    window.open(url, '_blank');
+                } catch (error) {
+                    console.error('Download failed:', error);
+                    Toastify({
+                        text: `Download failed: ${error.message}`,
+                        duration: 3000,
+                        gravity: "bottom",
+                        position: "right",
+                        style: { background: "#f44336" }
+                    }).showToast();
+                }
+            }
+            
+            async deleteItem(itemPath, itemType) {
+                const itemName = itemPath.split('/').pop();
+                const confirmMessage = itemType === 'directory' 
+                    ? `Are you sure you want to delete the folder "${itemName}" and all its contents?`
+                    : `Are you sure you want to delete the file "${itemName}"?`;
+                
+                if (!confirm(confirmMessage)) {
+                    return;
+                }
+                
+                try {
+                    // Encode each part of the path separately to handle subdirectories
+                    const encodedPath = itemPath.split('/').map(part => encodeURIComponent(part)).join('/');
+                    const response = await fetch(`/api/files/${encodedPath}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error || 'Delete failed');
+                    }
+                    
+                    Toastify({
+                        text: `${itemType === 'directory' ? 'Folder' : 'File'} deleted successfully`,
+                        duration: 3000,
+                        gravity: "bottom",
+                        position: "right",
+                        style: { background: "#4CAF50" }
+                    }).showToast();
+                    
+                    // Reload the file list
+                    this.loadFiles();
+                } catch (error) {
+                    console.error('Delete failed:', error);
+                    Toastify({
+                        text: `Delete failed: ${error.message}`,
+                        duration: 3000,
+                        gravity: "bottom",
+                        position: "right",
+                        style: { background: "#f44336" }
+                    }).showToast();
+                }
+            }
+        }
+        
+        // Initialize file list manager
+        const fileListManager = new FileListManager();
 
         // Theme management
         function setTheme(theme) {
