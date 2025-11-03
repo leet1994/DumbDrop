@@ -10,7 +10,36 @@ const path = require('path');
 const fs = require('fs').promises;
 const { config } = require('../config');
 const logger = require('../utils/logger');
-const { formatFileSize } = require('../utils/fileUtils');
+const { formatFileSize, sanitizeFilenameSafe } = require('../utils/fileUtils');
+
+/**
+ * Safely encode filename for Content-Disposition header
+ * Prevents header injection and handles special characters
+ * @param {string} filename - The filename to encode
+ * @returns {string} Properly formatted Content-Disposition value
+ */
+function createSafeContentDisposition(filename) {
+  // Remove any path separators to ensure we only get the filename
+  const basename = path.basename(filename);
+  
+  // Remove or replace characters that could cause issues
+  // Remove control characters (0x00-0x1F, 0x7F) and quotes
+  const sanitized = basename.replace(/[\x00-\x1F\x7F"\\]/g, '_');
+  
+  // For ASCII-only filenames, use simple format
+  if (/^[\x20-\x7E]*$/.test(sanitized)) {
+    // Escape any remaining quotes and backslashes
+    const escaped = sanitized.replace(/["\\]/g, '\\$&');
+    return `attachment; filename="${escaped}"`;
+  }
+  
+  // For filenames with non-ASCII characters, use RFC 5987 encoding
+  // This provides better international character support
+  const encoded = encodeURIComponent(sanitized);
+  const asciiSafe = sanitized.replace(/[^\x20-\x7E]/g, '_');
+  
+  return `attachment; filename="${asciiSafe}"; filename*=UTF-8''${encoded}`;
+}
 
 /**
  * Get file information
@@ -22,7 +51,8 @@ router.get('/info/*', async (req, res) => {
     // Ensure the path is within the upload directory (security check)
     const resolvedFilePath = path.resolve(filePath);
     const resolvedUploadDir = path.resolve(config.uploadDir);
-    if (!resolvedFilePath.startsWith(resolvedUploadDir)) {
+    // Check that the path starts with upload dir and is followed by a separator or is exactly the upload dir
+    if (!resolvedFilePath.startsWith(resolvedUploadDir + path.sep) && resolvedFilePath !== resolvedUploadDir) {
       logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -58,13 +88,14 @@ router.get('/download/*', async (req, res) => {
     // Ensure the file is within the upload directory (security check)
     const resolvedFilePath = path.resolve(filePath);
     const resolvedUploadDir = path.resolve(config.uploadDir);
-    if (!resolvedFilePath.startsWith(resolvedUploadDir)) {
+    // Check that the path starts with upload dir and is followed by a separator or is exactly the upload dir
+    if (!resolvedFilePath.startsWith(resolvedUploadDir + path.sep) && resolvedFilePath !== resolvedUploadDir) {
       logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
       return res.status(403).json({ error: 'Access denied' });
     }
     
-    // Set headers for download
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    // Set headers for download with safe Content-Disposition
+    res.setHeader('Content-Disposition', createSafeContentDisposition(fileName));
     res.setHeader('Content-Type', 'application/octet-stream');
     
     // Stream the file
@@ -211,7 +242,8 @@ router.delete('/*', async (req, res) => {
     // Ensure the path is within the upload directory (security check)
     const resolvedItemPath = path.resolve(itemPath);
     const resolvedUploadDir = path.resolve(config.uploadDir);
-    if (!resolvedItemPath.startsWith(resolvedUploadDir)) {
+    // Check that the path starts with upload dir and is followed by a separator or is exactly the upload dir
+    if (!resolvedItemPath.startsWith(resolvedUploadDir + path.sep) && resolvedItemPath !== resolvedUploadDir) {
       logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -256,7 +288,8 @@ router.put('/rename/*', async (req, res) => {
     // Ensure the current path is within the upload directory (security check)
     const resolvedCurrentPath = path.resolve(currentPath);
     const resolvedUploadDir = path.resolve(config.uploadDir);
-    if (!resolvedCurrentPath.startsWith(resolvedUploadDir)) {
+    // Check that the path starts with upload dir and is followed by a separator or is exactly the upload dir
+    if (!resolvedCurrentPath.startsWith(resolvedUploadDir + path.sep) && resolvedCurrentPath !== resolvedUploadDir) {
       logger.warn(`Attempted path traversal attack: ${req.params[0]}`);
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -266,7 +299,6 @@ router.put('/rename/*', async (req, res) => {
     const stats = await fs.stat(currentPath);
     
     // Sanitize the new name using our safe sanitization function
-    const { sanitizeFilenameSafe } = require('../utils/fileUtils');
     const sanitizedNewName = sanitizeFilenameSafe(newName.trim());
     
     // Construct the new path
@@ -274,7 +306,8 @@ router.put('/rename/*', async (req, res) => {
     
     // Ensure the new path is also within the upload directory
     const resolvedNewPath = path.resolve(newPath);
-    if (!resolvedNewPath.startsWith(resolvedUploadDir)) {
+    // Check that the path starts with upload dir and is followed by a separator or is exactly the upload dir
+    if (!resolvedNewPath.startsWith(resolvedUploadDir + path.sep) && resolvedNewPath !== resolvedUploadDir) {
       logger.warn(`Attempted to rename outside upload directory: ${newPath}`);
       return res.status(403).json({ error: 'Invalid destination path' });
     }

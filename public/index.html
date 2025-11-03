@@ -1297,17 +1297,66 @@
                     ? `${item.formattedSize} • ${this.countFilesInDirectory(item)} files`
                     : `${item.formattedSize} • ${new Date(item.uploadDate).toLocaleDateString()}`;
                 
-                itemDiv.innerHTML = `
-                    <div class="uploaded-file-info">
-                        <div class="uploaded-file-name">${icon} ${escapeHtml(name)}</div>
-                        <div class="uploaded-file-details">${escapeHtml(details)}</div>
-                    </div>
-                    <div class="uploaded-file-actions">
-                        ${item.type === 'file' ? `<button class="action-btn download-btn" onclick="fileListManager.downloadFile('${escapeHtml(item.path)}')">Download</button>` : ''}
-                        <button class="action-btn rename-btn" onclick="fileListManager.renameItem('${escapeHtml(item.path)}', '${item.type}', '${escapeHtml(item.name)}')">Rename</button>
-                        <button class="action-btn delete-btn" onclick="fileListManager.deleteItem('${escapeHtml(item.path)}', '${item.type}')">Delete</button>
-                    </div>
-                `;
+                // Create info section
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'uploaded-file-info';
+                
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'uploaded-file-name';
+                nameDiv.textContent = `${icon} ${name}`;
+                
+                const detailsDiv = document.createElement('div');
+                detailsDiv.className = 'uploaded-file-details';
+                detailsDiv.textContent = details;
+                
+                infoDiv.appendChild(nameDiv);
+                infoDiv.appendChild(detailsDiv);
+                
+                // Create actions section
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'uploaded-file-actions';
+                
+                // Download button (only for files)
+                if (item.type === 'file') {
+                    const downloadBtn = document.createElement('button');
+                    downloadBtn.className = 'action-btn download-btn';
+                    downloadBtn.textContent = 'Download';
+                    downloadBtn.dataset.path = item.path;
+                    downloadBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.downloadFile(downloadBtn.dataset.path);
+                    });
+                    actionsDiv.appendChild(downloadBtn);
+                }
+                
+                // Rename button
+                const renameBtn = document.createElement('button');
+                renameBtn.className = 'action-btn rename-btn';
+                renameBtn.textContent = 'Rename';
+                renameBtn.dataset.path = item.path;
+                renameBtn.dataset.type = item.type;
+                renameBtn.dataset.name = item.name;
+                renameBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.renameItem(renameBtn.dataset.path, renameBtn.dataset.type, renameBtn.dataset.name);
+                });
+                actionsDiv.appendChild(renameBtn);
+                
+                // Delete button
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'action-btn delete-btn';
+                deleteBtn.textContent = 'Delete';
+                deleteBtn.dataset.path = item.path;
+                deleteBtn.dataset.type = item.type;
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.deleteItem(deleteBtn.dataset.path, deleteBtn.dataset.type);
+                });
+                actionsDiv.appendChild(deleteBtn);
+                
+                // Assemble the item
+                itemDiv.appendChild(infoDiv);
+                itemDiv.appendChild(actionsDiv);
                 
                 return itemDiv;
             }
