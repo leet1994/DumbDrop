@@ -247,7 +247,7 @@ function sanitizePathPreserveDirsSafe(filePath) {
   // Split on forward slashes, sanitize each part, and rejoin
   return filePath
     .split('/')
-    .filter(part => part.length > 0) // Remove empty parts
+    .filter(part => part.length > 0 && part !== '.' && part !== '..') // Remove empty parts and path navigation tokens
     .map(part => sanitizeFilenameSafe(part))
     .join('/');
 }

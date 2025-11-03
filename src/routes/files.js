@@ -24,10 +24,10 @@ function createSafeContentDisposition(filename) {
   
   // Remove or replace characters that could cause issues
   // Remove control characters (0x00-0x1F, 0x7F) and quotes
-  const sanitized = basename.replace(/[\x00-\x1F\x7F"\\]/g, '_');
+  const sanitized = basename.replace(/[\u0000-\u001F\u007F"\\]/g, '_');
   
   // For ASCII-only filenames, use simple format
-  if (/^[\x20-\x7E]*$/.test(sanitized)) {
+  if (/^[\u0020-\u007E]*$/.test(sanitized)) {
     // Escape any remaining quotes and backslashes
     const escaped = sanitized.replace(/["\\]/g, '\\$&');
     return `attachment; filename="${escaped}"`;
@@ -36,7 +36,7 @@ function createSafeContentDisposition(filename) {
   // For filenames with non-ASCII characters, use RFC 5987 encoding
   // This provides better international character support
   const encoded = encodeURIComponent(sanitized);
-  const asciiSafe = sanitized.replace(/[^\x20-\x7E]/g, '_');
+  const asciiSafe = sanitized.replace(/[^\u0020-\u007E]/g, '_');
   
   return `attachment; filename="${asciiSafe}"; filename*=UTF-8''${encoded}`;
 }
@@ -300,6 +300,12 @@ router.put('/rename/*', async (req, res) => {
     
     // Sanitize the new name using our safe sanitization function
     const sanitizedNewName = sanitizeFilenameSafe(newName.trim());
+    
+    // Validate that sanitization didn't result in an empty filename
+    if (!sanitizedNewName || sanitizedNewName.trim() === '') {
+      logger.warn(`Rename rejected: sanitized filename is empty (original: "${newName}")`);
+      return res.status(400).json({ error: 'Invalid or empty filename after sanitization' });
+    }
     
     // Construct the new path
     const newPath = path.join(currentDir, sanitizedNewName);
